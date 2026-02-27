@@ -1,0 +1,165 @@
+{
+  "name": "Lead AI Agent Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook - Lead Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "lead-intake-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const message = $input.first().json.body?.message || '';\n\nif (!message || message.trim().length === 0) {\n  throw new Error('Message field is required');\n}\n\nif (message.length > 5000) {\n  throw new Error('Message too long (max 5000 characters)');\n}\n\nreturn [{ json: { message: message.trim(), receivedAt: new Date().toISOString() } }];"
+      },
+      "id": "validate-node",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "complete",
+        "model": "gpt-3.5-turbo",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a lead classification and extraction AI for a B2B SaaS company.\n\nCLASSIFY intent as exactly one of: Sales, Support, Spam\n- Sales: buying interest, pricing, demo, partnership\n- Support: existing customer issues, bugs, help\n- Spam: irrelevant, promotional, gibberish\n\nEXTRACT fields (null if not found):\n- name: person's full name\n- company: organization name  \n- requirement: what they specifically need\n\nGENERATE a professional 3-5 sentence email reply addressing their specific need.\n\nRespond ONLY with this JSON (no markdown):\n{\"intent\":\"Sales|Support|Spam\",\"name\":\"string or null\",\"company\":\"string or null\",\"requirement\":\"string or null\",\"ai_response\":\"string\"}"
+            },
+            {
+              "role": "user",
+              "content": "={{ 'Lead message:\\n\\n' + $json.message }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 500
+        }
+      },
+      "id": "llm-node",
+      "name": "LLM - Classify & Extract",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-creds",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawResponse = $input.first().json.message?.content || $input.first().json.text || '';\n\nlet parsed;\ntry {\n  // Strip any accidental markdown code fences\n  const cleaned = rawResponse.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  // Fallback if JSON parse fails\n  parsed = {\n    intent: 'Support',\n    name: null,\n    company: null,\n    requirement: null,\n    ai_response: 'Thank you for reaching out. Our team will get back to you within 24 hours.',\n    parse_error: e.message\n  };\n}\n\n// Validate intent is one of allowed values\nconst allowed = ['Sales', 'Support', 'Spam'];\nif (!allowed.includes(parsed.intent)) {\n  parsed.intent = 'Support';\n}\n\nreturn [{ json: { ...parsed, raw_message: $('Validate Input').first().json.message } }];"
+      },
+      "id": "parse-node",
+      "name": "Parse & Validate LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "leads",
+        "columns": "name,company,requirement,intent,raw_message,ai_response,created_at",
+        "additionalFields": {}
+      },
+      "id": "db-node",
+      "name": "SQLite - Save Lead",
+      "type": "n8n-nodes-base.sqlite",
+      "typeVersion": 1,
+      "position": [1120, 200],
+      "parameters": {
+        "query": "INSERT INTO leads (name, company, requirement, intent, raw_message, ai_response, created_at) VALUES ('{{ $json.name }}', '{{ $json.company }}', '{{ $json.requirement }}', '{{ $json.intent }}', '{{ $json.raw_message }}', '{{ $json.ai_response }}', '{{ new Date().toISOString() }}')"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.intent }}",
+              "operation": "notEqual",
+              "value2": "Spam"
+            }
+          ]
+        }
+      },
+      "id": "filter-spam",
+      "name": "Filter - Skip Spam",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, intent: $json.intent, extracted: { name: $json.name, company: $json.company, requirement: $json.requirement }, ai_response: $json.ai_response }) }}"
+      },
+      "id": "respond-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": false, \"error\": \"{{ $json.message }}\"}"
+      },
+      "id": "error-respond",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 500]
+    }
+  ],
+  "connections": {
+    "Webhook - Lead Intake": {
+      "main": [[ { "node": "Validate Input", "type": "main", "index": 0 } ]]
+    },
+    "Validate Input": {
+      "main": [
+        [ { "node": "LLM - Classify & Extract", "type": "main", "index": 0 } ],
+        [ { "node": "Error Response", "type": "main", "index": 0 } ]
+      ]
+    },
+    "LLM - Classify & Extract": {
+      "main": [[ { "node": "Parse & Validate LLM Response", "type": "main", "index": 0 } ]]
+    },
+    "Parse & Validate LLM Response": {
+      "main": [
+        [ { "node": "SQLite - Save Lead", "type": "main", "index": 0 } ],
+        [ { "node": "Filter - Skip Spam", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Filter - Skip Spam": {
+      "main": [[ { "node": "Respond to Webhook", "type": "main", "index": 0 } ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 1,
+  "tags": []
+}

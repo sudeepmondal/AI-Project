@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lead AI Agent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container { width: 100%; max-width: 700px; }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 36px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    h1 { font-size: 26px; color: #1a1a2e; margin-bottom: 6px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 28px; }
+    label { display: block; font-weight: 600; color: #333; margin-bottom: 6px; font-size: 14px; }
+    textarea {
+      width: 100%; height: 140px; padding: 14px;
+      border: 2px solid #e0e0e0; border-radius: 10px;
+      font-size: 14px; resize: vertical;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    textarea:focus { outline: none; border-color: #667eea; }
+    button {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+      margin-top: 16px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    button:hover { opacity: 0.92; transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .result {
+      margin-top: 28px; padding: 20px;
+      background: #f8f9ff; border-radius: 12px;
+      border-left: 4px solid #667eea;
+      display: none;
+    }
+    .result h3 { color: #333; margin-bottom: 14px; }
+    .badge {
+      display: inline-block; padding: 4px 12px;
+      border-radius: 20px; font-size: 13px; font-weight: 700;
+      margin-bottom: 14px;
+    }
+    .badge-Sales    { background: #d4edda; color: #155724; }
+    .badge-Support  { background: #fff3cd; color: #856404; }
+    .badge-Spam     { background: #f8d7da; color: #721c24; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+    .field { background: white; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e0e0; }
+    .field-label { font-size: 11px; color: #999; text-transform: uppercase; font-weight: 600; }
+    .field-value { font-size: 14px; color: #333; margin-top: 2px; font-weight: 500; }
+    .ai-response { background: white; padding: 14px; border-radius: 8px; border: 1px solid #e0e0e0; font-size: 14px; color: #444; line-height: 1.6; }
+    .ai-response-label { font-size: 12px; font-weight: 700; color: #667eea; margin-bottom: 6px; text-transform: uppercase; }
+    .warning { background: #fff3cd; padding: 10px 14px; border-radius: 8px; font-size: 13px; color: #856404; margin-bottom: 12px; }
+    .error-box { background: #f8d7da; padding: 14px; border-radius: 10px; color: #721c24; margin-top: 20px; display: none; font-size: 14px; }
+    .loading { text-align: center; padding: 20px; color: #667eea; display: none; }
+    .spinner { width: 36px; height: 36px; border: 3px solid #e0e0e0; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .leads-table { margin-top: 32px; }
+    .leads-table h2 { font-size: 18px; color: #1a1a2e; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #667eea; color: white; padding: 10px 12px; text-align: left; }
+    td { padding: 9px 12px; border-bottom: 1px solid #f0f0f0; color: #444; }
+    tr:hover td { background: #f8f9ff; }
+    .load-btn { background: transparent; border: 2px solid #667eea; color: #667eea; font-size: 13px; padding: 8px 20px; width: auto; margin-top: 0; }
+    .flex-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>🤖 Lead AI Agent</h1>
+    <p class="subtitle">Paste a lead message below — the AI will classify, extract, and respond.</p>
+
+    <label for="msg">Lead Message</label>
+    <textarea id="msg" placeholder="Example: Hi, I'm Sarah from TechCorp. We're looking for a CRM solution for our 50-person sales team. Can we schedule a demo this week?"></textarea>
+    <button id="submitBtn" onclick="submitLead()">Analyze Lead →</button>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>AI is processing your lead...</p>
+    </div>
+
+    <div class="result" id="result">
+      <h3>Analysis Result</h3>
+      <div id="warning-box" class="warning" style="display:none;"></div>
+      <span class="badge" id="badge"></span>
+      <div class="fields">
+        <div class="field"><div class="field-label">Name</div><div class="field-value" id="r-name">—</div></div>
+        <div class="field"><div class="field-label">Company</div><div class="field-value" id="r-company">—</div></div>
+        <div class="field"><div class="field-label">Requirement</div><div class="field-value" id="r-req">—</div></div>
+      </div>
+      <div class="ai-response-label">AI Generated Response</div>
+      <div class="ai-response" id="r-response"></div>
+    </div>
+
+    <div class="error-box" id="error-box"></div>
+
+    <div class="leads-table">
+      <div class="flex-row">
+        <h2>📋 Stored Leads</h2>
+        <button class="load-btn" onclick="loadLeads()">Refresh</button>
+      </div>
+      <div id="leads-container"><p style="color:#999;font-size:13px;">Click Refresh to load leads.</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function submitLead() {
+  const msg = document.getElementById('msg').value.trim();
+  if (!msg) { alert('Please enter a message.'); return; }
+
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('error-box').style.display = 'none';
+
+  try {
+    const res = await fetch('/webhook/lead', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg })
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Server error');
+
+    // Show result
+    const badge = document.getElementById('badge');
+    badge.textContent = data.intent;
+    badge.className = `badge badge-${data.intent}`;
+
+    document.getElementById('r-name').textContent    = data.extracted.name     || '—';
+    document.getElementById('r-company').textContent = data.extracted.company  || '—';
+    document.getElementById('r-req').textContent     = data.extracted.requirement || '—';
+    document.getElementById('r-response').textContent = data.ai_response;
+
+    const wb = document.getElementById('warning-box');
+    if (data.warning) { wb.textContent = '⚠️ Fallback used: ' + data.warning; wb.style.display = 'block'; }
+    else { wb.style.display = 'none'; }
+
+    document.getElementById('result').style.display = 'block';
+    loadLeads();
+
+  } catch(err) {
+    const eb = document.getElementById('error-box');
+    eb.textContent = '❌ Error: ' + err.message;
+    eb.style.display = 'block';
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('submitBtn').disabled = false;
+  }
+}
+
+async function loadLeads() {
+  try {
+    const res = await fetch('/leads');
+    const data = await res.json();
+    const container = document.getElementById('leads-container');
+
+    if (!data.leads.length) {
+      container.innerHTML = '<p style="color:#999;font-size:13px;">No leads yet.</p>';
+      return;
+    }
+
+    let html = `<table><thead><tr>
+      <th>ID</th><th>Intent</th><th>Name</th><th>Company</th><th>Requirement</th><th>Created At</th>
+    </tr></thead><tbody>`;
+
+    data.leads.forEach(l => {
+      html += `<tr>
+        <td>${l.id}</td>
+        <td><span class="badge badge-${l.intent}" style="padding:2px 8px;font-size:11px;">${l.intent||'—'}</span></td>
+        <td>${l.name||'—'}</td>
+        <td>${l.company||'—'}</td>
+        <td>${(l.requirement||'—').substring(0,40)}${l.requirement?.length>40?'...':''}</td>
+        <td style="font-size:11px;color:#999;">${l.created_at?.substring(0,16)||'—'}</td>
+      </tr>`;
+    });
+
+    container.innerHTML = html + '</tbody></table>';
+  } catch(e) {
+    document.getElementById('leads-container').innerHTML = '<p style="color:red;font-size:13px;">Failed to load leads.</p>';
+  }
+}
+
+// Load leads on page load
+loadLeads();
+</script>
+</body>
+</html>
